@@ -66,8 +66,14 @@ app.get("/health", (_req: Request, res: Response) => {
       githubUsername: !!config.GITHUB_USERNAME,
       githubToken: !!config.GITHUB_TOKEN,
       authEnabled: !!config.MCP_API_KEY,
+      keepAlive: !!config.KEEP_ALIVE_URL,
     },
   });
+});
+
+// Lightweight ping endpoint for keep-alive services
+app.get("/ping", (_req: Request, res: Response) => {
+  res.status(200).send("pong");
 });
 
 // Root endpoint with service info
@@ -136,15 +142,53 @@ app.post("/messages", authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Self-ping keep-alive loop to prevent Render / cloud host from sleeping.
+ * Render automatically provides RENDER_EXTERNAL_URL in production.
+ */
+function startKeepAlive() {
+  if (!config.KEEP_ALIVE_URL) {
+    console.log(
+      "[KEEP-ALIVE] Inactive (No KEEP_ALIVE_URL or RENDER_EXTERNAL_URL detected)."
+    );
+    return;
+  }
+
+  const pingUrl = `${config.KEEP_ALIVE_URL.replace(/\/+$/, "")}/ping`;
+  const intervalMs = config.KEEP_ALIVE_INTERVAL_MINUTES * 60 * 1000;
+
+  console.log(
+    `[KEEP-ALIVE] Active: Pinging ${pingUrl} every ${config.KEEP_ALIVE_INTERVAL_MINUTES} minutes.`
+  );
+
+  setInterval(async () => {
+    try {
+      const res = await fetch(pingUrl);
+      if (res.ok) {
+        console.log(
+          `[KEEP-ALIVE] Ping successful (${res.status}) at ${new Date().toISOString()}`
+        );
+      } else {
+        console.warn(`[KEEP-ALIVE] Ping returned HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      console.warn(`[KEEP-ALIVE] Ping error: ${err.message || err}`);
+    }
+  }, intervalMs).unref();
+}
+
 // Start Express Server
 const server = app.listen(config.PORT, () => {
   console.log(`\n======================================================`);
   console.log(`🚀 GitHub Lifetime MCP Server running on port ${config.PORT}`);
   console.log(`   Health Check:     http://localhost:${config.PORT}/health`);
+  console.log(`   Ping Endpoint:    http://localhost:${config.PORT}/ping`);
   console.log(`   SSE Endpoint:     http://localhost:${config.PORT}/sse`);
   console.log(`   Messages (POST):  http://localhost:${config.PORT}/messages`);
   console.log(`   Auth Protection:  ${config.MCP_API_KEY ? "ENABLED (MCP_API_KEY required)" : "DISABLED (Dev mode)"}`);
   console.log(`======================================================\n`);
+
+  startKeepAlive();
 });
 
 // Graceful shutdown

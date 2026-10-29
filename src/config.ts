@@ -8,6 +8,8 @@ export interface AppConfig {
   GITHUB_USERNAME: string;
   MCP_API_KEY: string;
   BASE_URL: string;
+  KEEP_ALIVE_URL: string;
+  KEEP_ALIVE_INTERVAL_MINUTES: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -16,6 +18,14 @@ export function loadConfig(): AppConfig {
   const MCP_API_KEY = process.env.MCP_API_KEY?.trim() || "";
   const PORT = parseInt(process.env.PORT || "3000", 10);
   const BASE_URL = process.env.BASE_URL?.trim() || `http://localhost:${PORT}`;
+  const KEEP_ALIVE_URL =
+    process.env.RENDER_EXTERNAL_URL?.trim() ||
+    process.env.KEEP_ALIVE_URL?.trim() ||
+    "";
+  const KEEP_ALIVE_INTERVAL_MINUTES = parseInt(
+    process.env.KEEP_ALIVE_INTERVAL_MINUTES || "10",
+    10
+  );
 
   const missing: string[] = [];
   if (!GITHUB_TOKEN) missing.push("GITHUB_TOKEN");
@@ -39,6 +49,8 @@ export function loadConfig(): AppConfig {
     GITHUB_USERNAME,
     MCP_API_KEY,
     BASE_URL,
+    KEEP_ALIVE_URL,
+    KEEP_ALIVE_INTERVAL_MINUTES,
   };
 }
 
