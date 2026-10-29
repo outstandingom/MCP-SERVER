@@ -27,10 +27,9 @@ const activeSessions = new Map<string, ActiveSession>();
 
 /**
  * Authentication Middleware
- * Validates MCP_API_KEY via:
- * 1. Authorization: Bearer <key>
- * 2. X-MCP-API-KEY: <key>
- * 3. Query string ?apiKey=<key> or ?token=<key>
+ * Flexible validator supporting:
+ * - Query params: ?apiKey=..., ?api_key=..., ?key=..., ?token=..., ?access_token=...
+ * - Headers: Authorization: Bearer <key>, X-MCP-API-KEY, X-API-KEY, API-KEY
  */
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
   // If no MCP_API_KEY is configured in development, allow requests
@@ -42,20 +41,35 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const expectedKey = config.MCP_API_KEY.replace(/^["']|["']$/g, "").trim();
 
   const authHeader = req.headers.authorization;
-  const customHeader = req.headers["x-mcp-api-key"] as string | undefined;
-  const queryKey = (req.query.apiKey || req.query.token) as string | undefined;
+  const customHeader = (
+    req.headers["x-mcp-api-key"] ||
+    req.headers["x-api-key"] ||
+    req.headers["mcp-api-key"] ||
+    req.headers["api-key"]
+  ) as string | undefined;
+
+  const rawQuery = (
+    req.query.apiKey ||
+    req.query.api_key ||
+    req.query.key ||
+    req.query.token ||
+    req.query.access_token ||
+    req.query.auth
+  ) as string | undefined;
 
   let providedKey: string | undefined;
 
   if (authHeader && authHeader.startsWith("Bearer ")) {
     providedKey = authHeader.slice(7).trim();
+  } else if (authHeader) {
+    providedKey = authHeader.trim();
   } else if (customHeader) {
     providedKey = customHeader.trim();
-  } else if (queryKey) {
+  } else if (rawQuery) {
     try {
-      providedKey = decodeURIComponent(queryKey.trim());
+      providedKey = decodeURIComponent(rawQuery.trim());
     } catch {
-      providedKey = queryKey.trim();
+      providedKey = rawQuery.trim();
     }
   }
 
@@ -65,10 +79,18 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
   }
 
   if (!providedKey || providedKey !== expectedKey) {
+    console.warn(
+      `[AUTH REJECTED] Path: ${req.path} from IP: ${req.ip}.` +
+      ` Expected length: ${expectedKey.length} (prefix: "${expectedKey.slice(0, 4)}...").` +
+      ` Provided length: ${providedKey ? providedKey.length : 0} (prefix: "${providedKey ? providedKey.slice(0, 4) : 'none'}...").`
+    );
     return res.status(401).json({
       error: "Unauthorized",
       message:
-        "Invalid or missing MCP_API_KEY. Provide it via Authorization Bearer token, X-MCP-API-KEY header, or apiKey query parameter.",
+        "Invalid or missing MCP_API_KEY. Provide it via Authorization Bearer token, X-MCP-API-KEY header, or ?apiKey= parameter.",
+      expectedLength: expectedKey.length,
+      expectedPrefix: expectedKey.slice(0, 4) + "...",
+      providedLength: providedKey ? providedKey.length : 0,
     });
   }
 
@@ -77,6 +99,7 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
 
 // Health check endpoint for host platforms (Railway, Render, Fly.io, etc.)
 app.get("/health", (_req: Request, res: Response) => {
+  const cleanKey = (config.MCP_API_KEY || "").replace(/^["']|["']$/g, "").trim();
   res.status(200).json({
     status: "healthy",
     service: "github-mcp-server",
@@ -87,6 +110,11 @@ app.get("/health", (_req: Request, res: Response) => {
       githubToken: !!config.GITHUB_TOKEN,
       authEnabled: !!config.MCP_API_KEY,
       keepAlive: !!config.KEEP_ALIVE_URL,
+    },
+    authInfo: {
+      enabled: !!cleanKey,
+      keyLength: cleanKey.length,
+      keyPrefix: cleanKey ? cleanKey.slice(0, 4) + "..." : "none",
     },
   });
 });
