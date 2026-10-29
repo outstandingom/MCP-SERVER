@@ -30,13 +30,16 @@ const activeSessions = new Map<string, ActiveSession>();
  * Validates MCP_API_KEY via:
  * 1. Authorization: Bearer <key>
  * 2. X-MCP-API-KEY: <key>
- * 3. Query string ?apiKey=<key> or ?token=<key> (useful for EventSource clients)
+ * 3. Query string ?apiKey=<key> or ?token=<key>
  */
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
-  // If no MCP_API_KEY is configured in development, allow requests with a warning
+  // If no MCP_API_KEY is configured in development, allow requests
   if (!config.MCP_API_KEY) {
     return next();
   }
+
+  // Strip accidental surrounding quotes from env var (e.g., if set as "value" in Render)
+  const expectedKey = config.MCP_API_KEY.replace(/^["']|["']$/g, "").trim();
 
   const authHeader = req.headers.authorization;
   const customHeader = req.headers["x-mcp-api-key"] as string | undefined;
@@ -49,10 +52,19 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
   } else if (customHeader) {
     providedKey = customHeader.trim();
   } else if (queryKey) {
-    providedKey = queryKey.trim();
+    try {
+      providedKey = decodeURIComponent(queryKey.trim());
+    } catch {
+      providedKey = queryKey.trim();
+    }
   }
 
-  if (!providedKey || providedKey !== config.MCP_API_KEY) {
+  // Strip potential surrounding quotes from provided key
+  if (providedKey) {
+    providedKey = providedKey.replace(/^["']|["']$/g, "").trim();
+  }
+
+  if (!providedKey || providedKey !== expectedKey) {
     return res.status(401).json({
       error: "Unauthorized",
       message:
