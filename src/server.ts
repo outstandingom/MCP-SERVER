@@ -218,7 +218,8 @@ app.post("/messages", async (req: Request, res: Response) => {
   }
 
   try {
-    await session.transport.handlePostMessage(req, res);
+    // Pass req.body so handlePostMessage doesn't try to re-read the already-consumed express stream
+    await session.transport.handlePostMessage(req, res, req.body);
   } catch (err) {
     console.error(`[MCP-RPC] Error processing message for session ${sessionId}:`, err);
     if (!res.headersSent) {
