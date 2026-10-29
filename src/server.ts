@@ -174,8 +174,12 @@ app.get("/sse", authMiddleware, async (req: Request, res: Response) => {
   try {
     console.log(`[MCP-SSE] New SSE connection incoming from ${req.ip}`);
 
+    // If an API key was used, append it to the advertised endpoint so clients that follow it retain auth
+    const cleanKey = (config.MCP_API_KEY || "").replace(/^["']|["']$/g, "").trim();
+    const endpointUrl = cleanKey ? `/messages?apiKey=${encodeURIComponent(cleanKey)}` : "/messages";
+
     // Create a new SSE Transport pointing to /messages
-    const transport = new SSEServerTransport("/messages", res);
+    const transport = new SSEServerTransport(endpointUrl, res);
     const mcpServer = createGitHubMcpServer();
 
     activeSessions.set(transport.sessionId, { transport, server: mcpServer });
@@ -197,17 +201,19 @@ app.get("/sse", authMiddleware, async (req: Request, res: Response) => {
 });
 
 // Messages endpoint for client RPC JSON-RPC payloads
-app.post("/messages", authMiddleware, async (req: Request, res: Response) => {
+// Authenticated by active sessionId (which was validated during /sse handshake)
+app.post("/messages", async (req: Request, res: Response) => {
   const sessionId = req.query.sessionId as string;
 
   if (!sessionId) {
     return res.status(400).json({ error: "Missing sessionId query parameter" });
   }
 
+  // Active sessions are cryptographically random UUIDs created only after passing auth on /sse
   const session = activeSessions.get(sessionId);
   if (!session) {
     return res.status(404).json({
-      error: "Session not found or expired. Re-connect via /sse.",
+      error: "Session not found or expired. Please re-connect via /sse.",
     });
   }
 
