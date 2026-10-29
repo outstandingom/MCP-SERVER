@@ -4,54 +4,43 @@ import { config } from "./config.js";
 import { getOctokit, formatError } from "./octokit.js";
 import { safetyLock, DeletionType } from "./safety-lock.js";
 
+const getOwner = (specifiedOwner?: string) => {
+  const owner = specifiedOwner?.trim() || config.GITHUB_USERNAME;
+  if (!owner) {
+    throw new Error(
+      "Owner not specified and GITHUB_USERNAME is not set in environment."
+    );
+  }
+  return owner;
+};
+
+export type ToolResponse = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+};
+
 /**
- * Creates and configures a fresh McpServer instance with all GitHub tools.
+ * Universal Tool Dispatcher.
+ * Executes any tool whether invoked via MCP protocol or frontend testing REST API.
  */
-export function createGitHubMcpServer(): McpServer {
-  const server = new McpServer({
-    name: "github-lifetime-gateway",
-    version: "1.0.0",
+export async function executeGitHubTool(
+  toolName: string,
+  args: Record<string, any> = {}
+): Promise<ToolResponse> {
+  const textContent = (text: string, isError = false): ToolResponse => ({
+    isError,
+    content: [{ type: "text" as const, text }],
   });
-
-  const getOwner = (specifiedOwner?: string) => {
-    const owner = specifiedOwner?.trim() || config.GITHUB_USERNAME;
-    if (!owner) {
-      throw new Error(
-        "Owner not specified and GITHUB_USERNAME is not set in environment."
-      );
-    }
-    return owner;
-  };
-
-  // ==========================================
-  // REPOSITORY & BRANCH TOOLS
-  // ==========================================
-
-  server.tool(
-    "list_repositories",
-    "List repositories accessible to the configured user or organization",
-    {
-      visibility: z
-        .enum(["all", "public", "private"])
-        .optional()
-        .describe("Filter by visibility (default: all)"),
-      sort: z
-        .enum(["created", "updated", "pushed", "full_name"])
-        .optional()
-        .describe("Sort field (default: updated)"),
-      direction: z.enum(["asc", "desc"]).optional().describe("Sort direction"),
-      per_page: z.number().min(1).max(100).optional().describe("Results per page (default: 30)"),
-      page: z.number().min(1).optional().describe("Page number (default: 1)"),
-    },
-    async ({ visibility, sort, direction, per_page, page }) => {
-      try {
+  try {
+    switch (toolName) {
+      case "list_repositories": {
         const octokit = getOctokit();
         const response = await octokit.repos.listForAuthenticatedUser({
-          visibility: visibility || "all",
-          sort: sort || "updated",
-          direction: direction || "desc",
-          per_page: per_page || 30,
-          page: page || 1,
+          visibility: args.visibility || "all",
+          sort: args.sort || "updated",
+          direction: args.direction || "desc",
+          per_page: args.per_page || 30,
+          page: args.page || 1,
         });
 
         const repos = response.data.map((r) => ({
@@ -66,29 +55,17 @@ export function createGitHubMcpServer(): McpServer {
         }));
 
         return {
-          content: [{ type: "text", text: JSON.stringify(repos, null, 2) }],
-        };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to list repositories: ${formatError(err)}` }],
+          content: [{ type: "text" as const, text: JSON.stringify(repos, null, 2) }],
         };
       }
-    }
-  );
 
-  server.tool(
-    "get_repository",
-    "Get detailed metadata about a specific GitHub repository",
-    {
-      owner: z.string().optional().describe("Owner/organization name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-    },
-    async ({ owner, repo }) => {
-      try {
+      case "get_repository": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
-        const { data } = await octokit.repos.get({ owner: targetOwner, repo });
+        const targetOwner = getOwner(args.owner);
+        const { data } = await octokit.repos.get({
+          owner: targetOwner,
+          repo: args.repo,
+        });
 
         const info = {
           name: data.name,
@@ -106,69 +83,36 @@ export function createGitHubMcpServer(): McpServer {
         };
 
         return {
-          content: [{ type: "text", text: JSON.stringify(info, null, 2) }],
-        };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to get repository: ${formatError(err)}` }],
+          content: [{ type: "text" as const, text: JSON.stringify(info, null, 2) }],
         };
       }
-    }
-  );
 
-  server.tool(
-    "create_repository",
-    "Create a new GitHub repository under your personal account",
-    {
-      name: z.string().describe("Repository name"),
-      description: z.string().optional().describe("Repository description"),
-      is_private: z.boolean().optional().describe("Whether repository should be private (default: true)"),
-      auto_init: z.boolean().optional().describe("Initialize repository with README (default: true)"),
-    },
-    async ({ name, description, is_private = true, auto_init = true }) => {
-      try {
+      case "create_repository": {
         const octokit = getOctokit();
         const { data } = await octokit.repos.createForAuthenticatedUser({
-          name,
-          description,
-          private: is_private,
-          auto_init,
+          name: args.name,
+          description: args.description,
+          private: args.is_private ?? true,
+          auto_init: args.auto_init ?? true,
         });
 
         return {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Repository created successfully:\nURL: ${data.html_url}\nClone: ${data.clone_url}\nDefault Branch: ${data.default_branch}`,
             },
           ],
         };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to create repository: ${formatError(err)}` }],
-        };
       }
-    }
-  );
 
-  server.tool(
-    "list_branches",
-    "List all branches in a repository",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      per_page: z.number().min(1).max(100).optional().describe("Results per page (default: 30)"),
-    },
-    async ({ owner, repo, per_page }) => {
-      try {
+      case "list_branches": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
         const { data } = await octokit.repos.listBranches({
           owner: targetOwner,
-          repo,
-          per_page: per_page || 30,
+          repo: args.repo,
+          per_page: args.per_page || 30,
         });
 
         const branches = data.map((b) => ({
@@ -178,92 +122,57 @@ export function createGitHubMcpServer(): McpServer {
         }));
 
         return {
-          content: [{ type: "text", text: JSON.stringify(branches, null, 2) }],
-        };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to list branches: ${formatError(err)}` }],
+          content: [{ type: "text" as const, text: JSON.stringify(branches, null, 2) }],
         };
       }
-    }
-  );
 
-  server.tool(
-    "create_branch",
-    "Create a new branch in a repository from an existing branch or commit SHA",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      branch: z.string().describe("Name of the new branch to create"),
-      from_branch: z.string().optional().describe("Base branch name (defaults to repository default branch)"),
-    },
-    async ({ owner, repo, branch, from_branch }) => {
-      try {
+      case "create_branch": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
-        let baseBranch = from_branch;
+        let baseBranch = args.from_branch;
         if (!baseBranch) {
-          const repoInfo = await octokit.repos.get({ owner: targetOwner, repo });
+          const repoInfo = await octokit.repos.get({
+            owner: targetOwner,
+            repo: args.repo,
+          });
           baseBranch = repoInfo.data.default_branch;
         }
 
         const refData = await octokit.git.getRef({
           owner: targetOwner,
-          repo,
+          repo: args.repo,
           ref: `heads/${baseBranch}`,
         });
 
         const sha = refData.data.object.sha;
 
-        const newBranch = await octokit.git.createRef({
+        await octokit.git.createRef({
           owner: targetOwner,
-          repo,
-          ref: `refs/heads/${branch}`,
+          repo: args.repo,
+          ref: `refs/heads/${args.branch}`,
           sha,
         });
 
         return {
           content: [
             {
-              type: "text",
-              text: `Branch "${branch}" created successfully on ${targetOwner}/${repo} from "${baseBranch}" (Commit SHA: ${sha}).`,
+              type: "text" as const,
+              text: `Branch "${args.branch}" created successfully on ${targetOwner}/${args.repo} from "${baseBranch}" (Commit SHA: ${sha}).`,
             },
           ],
         };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to create branch: ${formatError(err)}` }],
-        };
       }
-    }
-  );
 
-  // ==========================================
-  // CODE & FILE OPERATIONS
-  // ==========================================
-
-  server.tool(
-    "read_file",
-    "Read the content of a file from a repository",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      path: z.string().describe("Path to the file in the repository"),
-      ref: z.string().optional().describe("The name of the commit/branch/tag (defaults to default branch)"),
-    },
-    async ({ owner, repo, path, ref }) => {
-      try {
+      case "read_file": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
         const { data } = await octokit.repos.getContent({
           owner: targetOwner,
-          repo,
-          path,
-          ref,
+          repo: args.repo,
+          path: args.path,
+          ref: args.ref,
         });
 
         if (Array.isArray(data)) {
@@ -271,8 +180,8 @@ export function createGitHubMcpServer(): McpServer {
             isError: true,
             content: [
               {
-                type: "text",
-                text: `Path "${path}" is a directory. Use "list_directory" to view contents.`,
+                type: "text" as const,
+                text: `Path "${args.path}" is a directory. Use "list_directory" to view contents.`,
               },
             ],
           };
@@ -281,102 +190,72 @@ export function createGitHubMcpServer(): McpServer {
         if (!("content" in data) || data.type !== "file") {
           return {
             isError: true,
-            content: [{ type: "text", text: `Path "${path}" is not a readable file.` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `Path "${args.path}" is not a readable file.`,
+              },
+            ],
           };
         }
 
-        const decodedContent = Buffer.from(data.content, "base64").toString("utf-8");
+        const decodedContent = Buffer.from(data.content, "base64").toString(
+          "utf-8"
+        );
 
         return {
-          content: [
-            {
-              type: "text",
-              text: decodedContent,
-            },
-          ],
-        };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to read file: ${formatError(err)}` }],
+          content: [{ type: "text" as const, text: decodedContent }],
         };
       }
-    }
-  );
 
-  server.tool(
-    "list_directory",
-    "List the contents of a directory in a repository",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      path: z.string().optional().describe("Directory path (defaults to root)"),
-      ref: z.string().optional().describe("Commit/branch/tag ref"),
-    },
-    async ({ owner, repo, path = "", ref }) => {
-      try {
+      case "list_directory": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
         const { data } = await octokit.repos.getContent({
           owner: targetOwner,
-          repo,
-          path,
-          ref,
+          repo: args.repo,
+          path: args.path || "",
+          ref: args.ref,
         });
 
         if (!Array.isArray(data)) {
           return {
             isError: true,
-            content: [{ type: "text", text: `Path "${path}" is a file, not a directory.` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `Path "${args.path}" is a file, not a directory.`,
+              },
+            ],
           };
         }
 
         const items = data.map((item) => ({
           name: item.name,
           path: item.path,
-          type: item.type, // 'file' | 'dir' | 'submodule' | 'symlink'
+          type: item.type,
           size: item.size,
           sha: item.sha,
         }));
 
         return {
-          content: [{ type: "text", text: JSON.stringify(items, null, 2) }],
-        };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to list directory: ${formatError(err)}` }],
+          content: [{ type: "text" as const, text: JSON.stringify(items, null, 2) }],
         };
       }
-    }
-  );
 
-  server.tool(
-    "create_or_update_file",
-    "Create or update a single file in a repository",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      path: z.string().describe("Path to the file"),
-      content: z.string().describe("Text content of the file"),
-      message: z.string().describe("Commit message"),
-      branch: z.string().optional().describe("Branch to commit to (defaults to repository default branch)"),
-      sha: z.string().optional().describe("Blob SHA of file being replaced (auto-resolved if omitted)"),
-    },
-    async ({ owner, repo, path, content, message, branch, sha }) => {
-      try {
+      case "create_or_update_file": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
-        let fileSha = sha;
+        let fileSha = args.sha;
         if (!fileSha) {
           try {
             const existing = await octokit.repos.getContent({
               owner: targetOwner,
-              repo,
-              path,
-              ref: branch,
+              repo: args.repo,
+              path: args.path,
+              ref: args.branch,
             });
             if (!Array.isArray(existing.data) && "sha" in existing.data) {
               fileSha = existing.data.sha;
@@ -386,76 +265,50 @@ export function createGitHubMcpServer(): McpServer {
           }
         }
 
-        const base64Content = Buffer.from(content, "utf-8").toString("base64");
+        const base64Content = Buffer.from(args.content, "utf-8").toString(
+          "base64"
+        );
 
         const { data } = await octokit.repos.createOrUpdateFileContents({
           owner: targetOwner,
-          repo,
-          path,
-          message,
+          repo: args.repo,
+          path: args.path,
+          message: args.message,
           content: base64Content,
-          branch,
+          branch: args.branch,
           sha: fileSha,
         });
 
         return {
           content: [
             {
-              type: "text",
-              text: `File "${path}" committed successfully.\nCommit SHA: ${data.commit.sha}\nBranch: ${
-                branch || "default"
-              }`,
+              type: "text" as const,
+              text: `File "${args.path}" committed successfully.\nCommit SHA: ${
+                data.commit.sha
+              }\nBranch: ${args.branch || "default"}`,
             },
           ],
         };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to commit file: ${formatError(err)}` }],
-        };
       }
-    }
-  );
 
-  server.tool(
-    "batch_commit_files",
-    "Commit multiple file changes atomically in a single commit using Git Database API",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      branch: z.string().describe("Target branch to commit to"),
-      message: z.string().describe("Commit message"),
-      files: z
-        .array(
-          z.object({
-            path: z.string().describe("Relative file path"),
-            content: z.string().describe("File content string"),
-          })
-        )
-        .describe("Array of files with path and content"),
-    },
-    async ({ owner, repo, branch, message, files }) => {
-      try {
+      case "batch_commit_files": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
-        // 1. Get branch reference
         const refResp = await octokit.git.getRef({
           owner: targetOwner,
-          repo,
-          ref: `heads/${branch}`,
+          repo: args.repo,
+          ref: `heads/${args.branch}`,
         });
         const latestCommitSha = refResp.data.object.sha;
 
-        // 2. Get base tree
         const commitResp = await octokit.git.getCommit({
           owner: targetOwner,
-          repo,
+          repo: args.repo,
           commit_sha: latestCommitSha,
         });
         const baseTreeSha = commitResp.data.tree.sha;
 
-        // 3. Create blobs & tree entries
         const treeItems: Array<{
           path: string;
           mode: "100644";
@@ -463,10 +316,10 @@ export function createGitHubMcpServer(): McpServer {
           sha: string;
         }> = [];
 
-        for (const f of files) {
+        for (const f of args.files) {
           const blobResp = await octokit.git.createBlob({
             owner: targetOwner,
-            repo,
+            repo: args.repo,
             content: Buffer.from(f.content, "utf-8").toString("base64"),
             encoding: "base64",
           });
@@ -479,71 +332,47 @@ export function createGitHubMcpServer(): McpServer {
           });
         }
 
-        // 4. Create new tree
         const newTreeResp = await octokit.git.createTree({
           owner: targetOwner,
-          repo,
+          repo: args.repo,
           base_tree: baseTreeSha,
           tree: treeItems,
         });
 
-        // 5. Create new commit
         const newCommitResp = await octokit.git.createCommit({
           owner: targetOwner,
-          repo,
-          message,
+          repo: args.repo,
+          message: args.message,
           tree: newTreeResp.data.sha,
           parents: [latestCommitSha],
         });
 
-        // 6. Update reference
         await octokit.git.updateRef({
           owner: targetOwner,
-          repo,
-          ref: `heads/${branch}`,
+          repo: args.repo,
+          ref: `heads/${args.branch}`,
           sha: newCommitResp.data.sha,
         });
 
         return {
           content: [
             {
-              type: "text",
-              text: `Atomic commit successful!\nBranch: ${branch}\nFiles changed: ${files.length}\nCommit SHA: ${newCommitResp.data.sha}`,
+              type: "text" as const,
+              text: `Atomic commit successful!\nBranch: ${args.branch}\nFiles changed: ${args.files.length}\nCommit SHA: ${newCommitResp.data.sha}`,
             },
           ],
         };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to execute batch commit: ${formatError(err)}` }],
-        };
       }
-    }
-  );
 
-  // ==========================================
-  // PULL REQUEST TOOLS
-  // ==========================================
-
-  server.tool(
-    "list_pull_requests",
-    "List pull requests for a repository",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      state: z.enum(["open", "closed", "all"]).optional().describe("PR state filter (default: open)"),
-      per_page: z.number().min(1).max(100).optional().describe("Results per page (default: 30)"),
-    },
-    async ({ owner, repo, state = "open", per_page = 30 }) => {
-      try {
+      case "list_pull_requests": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
         const { data } = await octokit.pulls.list({
           owner: targetOwner,
-          repo,
-          state,
-          per_page,
+          repo: args.repo,
+          state: args.state || "open",
+          per_page: args.per_page || 30,
         });
 
         const prs = data.map((p) => ({
@@ -558,140 +387,79 @@ export function createGitHubMcpServer(): McpServer {
         }));
 
         return {
-          content: [{ type: "text", text: JSON.stringify(prs, null, 2) }],
-        };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to list pull requests: ${formatError(err)}` }],
+          content: [{ type: "text" as const, text: JSON.stringify(prs, null, 2) }],
         };
       }
-    }
-  );
 
-  server.tool(
-    "create_pull_request",
-    "Create a new pull request in a repository",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      title: z.string().describe("Title of the pull request"),
-      body: z.string().optional().describe("Description/body of the pull request"),
-      head: z.string().describe("Name of branch where your changes are implemented"),
-      base: z.string().optional().describe("Name of branch you want changes pulled into (defaults to default branch)"),
-    },
-    async ({ owner, repo, title, body, head, base }) => {
-      try {
+      case "create_pull_request": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
-        let baseBranch = base;
+        let baseBranch = args.base;
         if (!baseBranch) {
-          const repoData = await octokit.repos.get({ owner: targetOwner, repo });
+          const repoData = await octokit.repos.get({
+            owner: targetOwner,
+            repo: args.repo,
+          });
           baseBranch = repoData.data.default_branch;
         }
 
         const { data } = await octokit.pulls.create({
           owner: targetOwner,
-          repo,
-          title,
-          body,
-          head,
+          repo: args.repo,
+          title: args.title,
+          body: args.body,
+          head: args.head,
           base: baseBranch,
         });
 
         return {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Pull Request #${data.number} created successfully!\nTitle: ${data.title}\nURL: ${data.html_url}\nState: ${data.state}`,
             },
           ],
         };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to create pull request: ${formatError(err)}` }],
-        };
       }
-    }
-  );
 
-  server.tool(
-    "merge_pull_request",
-    "Merge an existing pull request",
-    {
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      pull_number: z.number().describe("Pull request number"),
-      commit_title: z.string().optional().describe("Title for merge commit"),
-      merge_method: z.enum(["merge", "squash", "rebase"]).optional().describe("Merge method (default: squash)"),
-    },
-    async ({ owner, repo, pull_number, commit_title, merge_method = "squash" }) => {
-      try {
+      case "merge_pull_request": {
         const octokit = getOctokit();
-        const targetOwner = getOwner(owner);
+        const targetOwner = getOwner(args.owner);
 
         const { data } = await octokit.pulls.merge({
           owner: targetOwner,
-          repo,
-          pull_number,
-          commit_title,
-          merge_method,
+          repo: args.repo,
+          pull_number: args.pull_number,
+          commit_title: args.commit_title,
+          merge_method: args.merge_method || "squash",
         });
 
         return {
           content: [
             {
-              type: "text",
-              text: `Pull Request #${pull_number} merged successfully!\nMerged: ${data.merged}\nMessage: ${data.message}\nSHA: ${data.sha}`,
+              type: "text" as const,
+              text: `Pull Request #${args.pull_number} merged successfully!\nMerged: ${data.merged}\nMessage: ${data.message}\nSHA: ${data.sha}`,
             },
           ],
         };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to merge pull request: ${formatError(err)}` }],
-        };
       }
-    }
-  );
 
-  // ==============================================================
-  // TWO-STEP DELETION SAFETY LOCK (DESTRUCTIVE ACTIONS)
-  // ==============================================================
-
-  server.tool(
-    "request_deletion",
-    "STEP 1 OF SAFETY LOCK: Initiates a deletion request for a file, branch, or repository. Generates a secure, temporary 6-digit confirmation code required for execution.",
-    {
-      type: z.enum(["file", "branch", "repository"]).describe("Type of resource to delete"),
-      owner: z.string().optional().describe("Owner name (defaults to GITHUB_USERNAME)"),
-      repo: z.string().describe("Repository name"),
-      target: z
-        .string()
-        .describe("Target identifier (File path, branch name, or repository name)"),
-      branch: z
-        .string()
-        .optional()
-        .describe("Branch name (only needed if deleting a file on a non-default branch)"),
-    },
-    async ({ type, owner, repo, target, branch }) => {
-      try {
-        const targetOwner = getOwner(owner);
+      case "request_deletion": {
+        const targetOwner = getOwner(args.owner);
 
         const result = safetyLock.createPendingDeletion({
-          type: type as DeletionType,
+          type: args.type as DeletionType,
           owner: targetOwner,
-          repo,
-          target,
-          branch,
+          repo: args.repo,
+          target: args.target,
+          branch: args.branch,
         });
 
         return {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: JSON.stringify(
                 {
                   status: "PENDING_CONFIRMATION",
@@ -699,7 +467,7 @@ export function createGitHubMcpServer(): McpServer {
                   pendingId: result.pendingId,
                   confirmationCode: result.confirmationCode,
                   expiresInSeconds: result.expiresInSeconds,
-                  instruction: `To proceed, ask the user to confirm using code "${result.confirmationCode}", then invoke the "confirm_deletion" tool with pendingId "${result.pendingId}" and confirmation_code "${result.confirmationCode}".`,
+                  instruction: `To proceed, confirm with code "${result.confirmationCode}", then invoke "confirm_deletion" with pending_id "${result.pendingId}" and confirmation_code "${result.confirmationCode}".`,
                 },
                 null,
                 2
@@ -707,30 +475,18 @@ export function createGitHubMcpServer(): McpServer {
             },
           ],
         };
-      } catch (err) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: `Failed to initiate deletion: ${formatError(err)}` }],
-        };
       }
-    }
-  );
 
-  server.tool(
-    "confirm_deletion",
-    "STEP 2 OF SAFETY LOCK: Confirms and permanently executes the destructive deletion using the 6-digit confirmation code generated in Step 1.",
-    {
-      pending_id: z.string().describe("The pendingId returned from request_deletion"),
-      confirmation_code: z.string().length(6).describe("The 6-digit confirmation code"),
-    },
-    async ({ pending_id, confirmation_code }) => {
-      try {
-        const result = await safetyLock.executePendingDeletion(pending_id, confirmation_code);
+      case "confirm_deletion": {
+        const result = await safetyLock.executePendingDeletion(
+          args.pending_id,
+          args.confirmation_code
+        );
 
         return {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: JSON.stringify(
                 {
                   status: "DELETED_SUCCESSFULLY",
@@ -742,13 +498,325 @@ export function createGitHubMcpServer(): McpServer {
             },
           ],
         };
-      } catch (err) {
+      }
+
+      default:
         return {
           isError: true,
-          content: [{ type: "text", text: `Destructive action aborted: ${formatError(err)}` }],
+          content: [{ type: "text" as const, text: `Unknown tool: "${toolName}"` }],
         };
-      }
     }
+  } catch (err) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text" as const,
+          text: `Error executing "${toolName}": ${formatError(err)}`,
+        },
+      ],
+    };
+  }
+}
+
+/**
+ * Creates and configures a fresh McpServer instance with all GitHub tools.
+ */
+export function createGitHubMcpServer(): McpServer {
+  const server = new McpServer({
+    name: "github-lifetime-gateway",
+    version: "1.0.0",
+  });
+
+  server.tool(
+    "list_repositories",
+    "List repositories accessible to the configured user or organization",
+    {
+      visibility: z
+        .enum(["all", "public", "private"])
+        .optional()
+        .describe("Filter by visibility (default: all)"),
+      sort: z
+        .enum(["created", "updated", "pushed", "full_name"])
+        .optional()
+        .describe("Sort field (default: updated)"),
+      direction: z.enum(["asc", "desc"]).optional().describe("Sort direction"),
+      per_page: z
+        .number()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("Results per page (default: 30)"),
+      page: z.number().min(1).optional().describe("Page number (default: 1)"),
+    },
+    async (args) => executeGitHubTool("list_repositories", args)
+  );
+
+  server.tool(
+    "get_repository",
+    "Get detailed metadata about a specific GitHub repository",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner/organization name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+    },
+    async (args) => executeGitHubTool("get_repository", args)
+  );
+
+  server.tool(
+    "create_repository",
+    "Create a new GitHub repository under your personal account",
+    {
+      name: z.string().describe("Repository name"),
+      description: z.string().optional().describe("Repository description"),
+      is_private: z
+        .boolean()
+        .optional()
+        .describe("Whether repository should be private (default: true)"),
+      auto_init: z
+        .boolean()
+        .optional()
+        .describe("Initialize repository with README (default: true)"),
+    },
+    async (args) => executeGitHubTool("create_repository", args)
+  );
+
+  server.tool(
+    "list_branches",
+    "List all branches in a repository",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      per_page: z
+        .number()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("Results per page (default: 30)"),
+    },
+    async (args) => executeGitHubTool("list_branches", args)
+  );
+
+  server.tool(
+    "create_branch",
+    "Create a new branch in a repository from an existing branch or commit SHA",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      branch: z.string().describe("Name of the new branch to create"),
+      from_branch: z
+        .string()
+        .optional()
+        .describe(
+          "Base branch name (defaults to repository default branch)"
+        ),
+    },
+    async (args) => executeGitHubTool("create_branch", args)
+  );
+
+  server.tool(
+    "read_file",
+    "Read the content of a file from a repository",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      path: z.string().describe("Path to the file in the repository"),
+      ref: z
+        .string()
+        .optional()
+        .describe(
+          "The name of the commit/branch/tag (defaults to default branch)"
+        ),
+    },
+    async (args) => executeGitHubTool("read_file", args)
+  );
+
+  server.tool(
+    "list_directory",
+    "List the contents of a directory in a repository",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      path: z.string().optional().describe("Directory path (defaults to root)"),
+      ref: z.string().optional().describe("Commit/branch/tag ref"),
+    },
+    async (args) => executeGitHubTool("list_directory", args)
+  );
+
+  server.tool(
+    "create_or_update_file",
+    "Create or update a single file in a repository",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      path: z.string().describe("Path to the file"),
+      content: z.string().describe("Text content of the file"),
+      message: z.string().describe("Commit message"),
+      branch: z
+        .string()
+        .optional()
+        .describe(
+          "Branch to commit to (defaults to repository default branch)"
+        ),
+      sha: z
+        .string()
+        .optional()
+        .describe(
+          "Blob SHA of file being replaced (auto-resolved if omitted)"
+        ),
+    },
+    async (args) => executeGitHubTool("create_or_update_file", args)
+  );
+
+  server.tool(
+    "batch_commit_files",
+    "Commit multiple file changes atomically in a single commit using Git Database API",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      branch: z.string().describe("Target branch to commit to"),
+      message: z.string().describe("Commit message"),
+      files: z
+        .array(
+          z.object({
+            path: z.string().describe("Relative file path"),
+            content: z.string().describe("File content string"),
+          })
+        )
+        .describe("Array of files with path and content"),
+    },
+    async (args) => executeGitHubTool("batch_commit_files", args)
+  );
+
+  server.tool(
+    "list_pull_requests",
+    "List pull requests for a repository",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      state: z
+        .enum(["open", "closed", "all"])
+        .optional()
+        .describe("PR state filter (default: open)"),
+      per_page: z
+        .number()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe("Results per page (default: 30)"),
+    },
+    async (args) => executeGitHubTool("list_pull_requests", args)
+  );
+
+  server.tool(
+    "create_pull_request",
+    "Create a new pull request in a repository",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      title: z.string().describe("Title of the pull request"),
+      body: z
+        .string()
+        .optional()
+        .describe("Description/body of the pull request"),
+      head: z
+        .string()
+        .describe("Name of branch where your changes are implemented"),
+      base: z
+        .string()
+        .optional()
+        .describe(
+          "Name of branch you want changes pulled into (defaults to default branch)"
+        ),
+    },
+    async (args) => executeGitHubTool("create_pull_request", args)
+  );
+
+  server.tool(
+    "merge_pull_request",
+    "Merge an existing pull request",
+    {
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      pull_number: z.number().describe("Pull request number"),
+      commit_title: z.string().optional().describe("Title for merge commit"),
+      merge_method: z
+        .enum(["merge", "squash", "rebase"])
+        .optional()
+        .describe("Merge method (default: squash)"),
+    },
+    async (args) => executeGitHubTool("merge_pull_request", args)
+  );
+
+  server.tool(
+    "request_deletion",
+    "STEP 1 OF SAFETY LOCK: Initiates a deletion request for a file, branch, or repository. Generates a secure, temporary 6-digit confirmation code required for execution.",
+    {
+      type: z
+        .enum(["file", "branch", "repository"])
+        .describe("Type of resource to delete"),
+      owner: z
+        .string()
+        .optional()
+        .describe("Owner name (defaults to GITHUB_USERNAME)"),
+      repo: z.string().describe("Repository name"),
+      target: z
+        .string()
+        .describe(
+          "Target identifier (File path, branch name, or repository name)"
+        ),
+      branch: z
+        .string()
+        .optional()
+        .describe(
+          "Branch name (only needed if deleting a file on a non-default branch)"
+        ),
+    },
+    async (args) => executeGitHubTool("request_deletion", args)
+  );
+
+  server.tool(
+    "confirm_deletion",
+    "STEP 2 OF SAFETY LOCK: Confirms and permanently executes the destructive deletion using the 6-digit confirmation code generated in Step 1.",
+    {
+      pending_id: z
+        .string()
+        .describe("The pendingId returned from request_deletion"),
+      confirmation_code: z
+        .string()
+        .length(6)
+        .describe("The 6-digit confirmation code"),
+    },
+    async (args) => executeGitHubTool("confirm_deletion", args)
   );
 
   return server;

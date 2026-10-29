@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitHub MCP Gateway | Control Dashboard</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+            },
+            dark: {
+              800: '#1e293b',
+              900: '#0f172a',
+              950: '#020617',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-dark-950 text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Top Navbar -->
+  <header class="border-b border-slate-800 bg-dark-900/80 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <i class="fa-brands fa-github text-xl text-dark-950"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold tracking-tight text-white flex items-center gap-2">
+            GitHub Lifetime MCP Server
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">v1.0.0</span>
+          </h1>
+          <p class="text-xs text-slate-400">Model Context Protocol • Streamable SSE Gateway</p>
+        </div>
+      </div>
+
+      <!-- Live Server Status Indicator -->
+      <div class="flex items-center gap-4">
+        <div id="status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-800 text-slate-400 border border-slate-700">
+          <span class="h-2 w-2 rounded-full bg-amber-400 animate-pulse" id="status-dot"></span>
+          <span id="status-text">Checking server...</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-6">
+
+    <!-- Global Connection & Auth Bar -->
+    <div class="bg-dark-900 border border-slate-800 rounded-2xl p-5 shadow-xl grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+      <div class="md:col-span-5">
+        <label class="block text-xs font-medium text-slate-400 mb-1">Server Host / Public URL</label>
+        <div class="flex items-center gap-2">
+          <input type="text" id="server-url-input" class="w-full bg-dark-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-emerald-400 focus:outline-none focus:border-emerald-500" readonly>
+          <button onclick="copyServerUrl()" class="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+            <i class="fa-regular fa-copy"></i>
+            <span>Copy</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="md:col-span-5">
+        <label class="block text-xs font-medium text-slate-400 mb-1">MCP API Key (Stored locally in browser)</label>
+        <div class="relative">
+          <input type="password" id="api-key-input" placeholder="Enter your MCP_API_KEY" class="w-full bg-dark-950 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-emerald-500">
+          <button onclick="togglePasswordVisibility()" class="absolute right-3 top-2.5 text-slate-400 hover:text-white text-xs">
+            <i class="fa-regular fa-eye" id="toggle-eye-icon"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="md:col-span-2 flex flex-col justify-end">
+        <button onclick="checkHealth()" class="w-full px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-dark-950 font-semibold text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20">
+          <i class="fa-solid fa-arrows-rotate"></i>
+          <span>Test Ping</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="flex border-b border-slate-800 space-x-2">
+      <button onclick="switchTab('agents')" id="tab-btn-agents" class="tab-btn px-4 py-3 text-xs font-semibold rounded-t-xl border-b-2 border-emerald-500 text-emerald-400 bg-slate-800/40 flex items-center gap-2">
+        <i class="fa-solid fa-robot"></i>
+        <span>AI Agents Connection Hub</span>
+      </button>
+      <button onclick="switchTab('tester')" id="tab-btn-tester" class="tab-btn px-4 py-3 text-xs font-semibold rounded-t-xl border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
+        <i class="fa-solid fa-terminal"></i>
+        <span>Live Tools Playground</span>
+      </button>
+      <button onclick="switchTab('safety')" id="tab-btn-safety" class="tab-btn px-4 py-3 text-xs font-semibold rounded-t-xl border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
+        <i class="fa-solid fa-shield-halved"></i>
+        <span>Two-Step Safety Lock</span>
+      </button>
+      <button onclick="switchTab('health')" id="tab-btn-health" class="tab-btn px-4 py-3 text-xs font-semibold rounded-t-xl border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2">
+        <i class="fa-solid fa-heart-pulse"></i>
+        <span>System & Keep-Alive Info</span>
+      </button>
+    </div>
+
+    <!-- TAB 1: AI AGENTS CONNECTION HUB -->
+    <div id="tab-agents" class="tab-pane space-y-6">
+      <div class="bg-dark-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-plug text-emerald-400"></i>
+            One-Click AI Agent Integration
+          </h2>
+          <p class="text-xs text-slate-400 mt-1">Select your agent below to get the pre-configured JSON snippet. Paste it into your agent's config file to connect immediately.</p>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+          <button onclick="selectAgent('claude')" id="btn-agent-claude" class="agent-select-btn p-3 rounded-xl border border-emerald-500 bg-emerald-500/10 text-emerald-400 text-left font-medium text-xs flex flex-col gap-1">
+            <span class="font-bold flex items-center gap-1.5"><i class="fa-solid fa-comment-dots"></i> Claude Desktop</span>
+            <span class="text-[11px] text-slate-400">claude_desktop_config.json</span>
+          </button>
+          <button onclick="selectAgent('cursor')" id="btn-agent-cursor" class="agent-select-btn p-3 rounded-xl border border-slate-800 bg-dark-950 text-slate-400 text-left font-medium text-xs flex flex-col gap-1">
+            <span class="font-bold flex items-center gap-1.5"><i class="fa-solid fa-code"></i> Cursor IDE</span>
+            <span class="text-[11px] text-slate-400">.cursor/mcp.json</span>
+          </button>
+          <button onclick="selectAgent('antigravity')" id="btn-agent-antigravity" class="agent-select-btn p-3 rounded-xl border border-slate-800 bg-dark-950 text-slate-400 text-left font-medium text-xs flex flex-col gap-1">
+            <span class="font-bold flex items-center gap-1.5"><i class="fa-solid fa-sparkles"></i> Antigravity / Windsurf</span>
+            <span class="text-[11px] text-slate-400">mcp_config.json</span>
+          </button>
+          <button onclick="selectAgent('curl')" id="btn-agent-curl" class="agent-select-btn p-3 rounded-xl border border-slate-800 bg-dark-950 text-slate-400 text-left font-medium text-xs flex flex-col gap-1">
+            <span class="font-bold flex items-center gap-1.5"><i class="fa-solid fa-terminal"></i> Direct SSE / cURL</span>
+            <span class="text-[11px] text-slate-400">Terminal command</span>
+          </button>
+        </div>
+
+        <div class="relative bg-dark-950 border border-slate-800 rounded-xl p-4">
+          <div class="flex items-center justify-between pb-2 border-b border-slate-800 text-xs text-slate-400">
+            <span id="config-filename-label" class="font-mono">claude_desktop_config.json</span>
+            <button onclick="copyAgentConfig()" class="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-medium">
+              <i class="fa-regular fa-copy"></i>
+              <span>Copy Configuration</span>
+            </button>
+          </div>
+          <pre id="agent-config-code" class="mt-3 text-xs font-mono text-slate-200 overflow-x-auto whitespace-pre leading-relaxed"></pre>
+        </div>
+
+        <div id="agent-instructions" class="text-xs text-slate-400 bg-slate-900/50 p-4 rounded-xl border border-slate-800"></div>
+      </div>
+    </div>
+
+    <!-- TAB 2: LIVE TOOLS PLAYGROUND -->
+    <div id="tab-tester" class="tab-pane hidden space-y-6">
+      <div class="bg-dark-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-screwdriver-wrench text-emerald-400"></i>
+            Live Tool Testing Playground
+          </h2>
+          <p class="text-xs text-slate-400 mt-1">Execute tools directly through your MCP Server to test Octokit calls and repository operations in real time.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <!-- Tool Selection -->
+          <div class="space-y-2">
+            <label class="block text-xs font-semibold text-slate-300">Select Tool to Test</label>
+            <div class="space-y-1.5">
+              <button onclick="loadToolUI('list_repositories')" id="tool-btn-list_repositories" class="tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500">
+                <i class="fa-solid fa-list mr-1"></i> list_repositories
+              </button>
+              <button onclick="loadToolUI('get_repository')" id="tool-btn-get_repository" class="tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 border border-transparent">
+                <i class="fa-solid fa-book-bookmark mr-1"></i> get_repository
+              </button>
+              <button onclick="loadToolUI('list_branches')" id="tool-btn-list_branches" class="tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 border border-transparent">
+                <i class="fa-solid fa-code-branch mr-1"></i> list_branches
+              </button>
+              <button onclick="loadToolUI('read_file')" id="tool-btn-read_file" class="tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 border border-transparent">
+                <i class="fa-solid fa-file-code mr-1"></i> read_file
+              </button>
+              <button onclick="loadToolUI('create_or_update_file')" id="tool-btn-create_or_update_file" class="tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 border border-transparent">
+                <i class="fa-solid fa-file-pen mr-1"></i> create_or_update_file
+              </button>
+              <button onclick="loadToolUI('list_pull_requests')" id="tool-btn-list_pull_requests" class="tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 border border-transparent">
+                <i class="fa-solid fa-code-pull-request mr-1"></i> list_pull_requests
+              </button>
+            </div>
+          </div>
+
+          <!-- Tool Input Parameters -->
+          <div class="md:col-span-3 space-y-4 bg-dark-950 p-5 rounded-xl border border-slate-800">
+            <h3 id="current-tool-title" class="text-sm font-bold text-white flex items-center justify-between">
+              <span>list_repositories</span>
+              <button onclick="runCurrentTool()" id="btn-run-tool" class="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-dark-950 font-bold text-xs flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-play"></i> Run Tool
+              </button>
+            </h3>
+
+            <div id="tool-input-fields" class="space-y-3">
+              <!-- Dynamically populated -->
+            </div>
+
+            <div class="pt-3 border-t border-slate-800">
+              <label class="block text-xs font-semibold text-slate-400 mb-1">Tool Output Response</label>
+              <pre id="tool-output-box" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs font-mono text-emerald-300 max-h-80 overflow-y-auto whitespace-pre-wrap">Click "Run Tool" to execute.</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: TWO-STEP DELETION SAFETY LOCK -->
+    <div id="tab-safety" class="tab-pane hidden space-y-6">
+      <div class="bg-dark-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-shield-halved text-amber-400"></i>
+            Two-Step User-Approved Deletion Safety Lock
+          </h2>
+          <p class="text-xs text-slate-400 mt-1">Prevents accidental data loss or AI hallucination deletions by enforcing dynamic 6-digit confirmation codes.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Step 1 Form -->
+          <div class="bg-dark-950 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center gap-2">
+              <span class="h-6 w-6 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold text-xs">1</span>
+              <h3 class="text-sm font-bold text-white">Step 1: Request Deletion Lock</h3>
+            </div>
+            <p class="text-xs text-slate-400">Initiates the request and generates a temporary 6-digit security code.</p>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Resource Type</label>
+              <select id="lock-type" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+                <option value="file">File</option>
+                <option value="branch">Branch</option>
+                <option value="repository">Repository</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Repository Name</label>
+              <input type="text" id="lock-repo" placeholder="e.g. MCP-SERVER" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Target Name / Path</label>
+              <input type="text" id="lock-target" placeholder="e.g. temp-test.txt or feature-branch" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+
+            <button onclick="requestDeletionLock()" class="w-full px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-dark-950 font-bold text-xs transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-key"></i>
+              <span>Generate 6-Digit Lock Code</span>
+            </button>
+          </div>
+
+          <!-- Step 2 Form -->
+          <div class="bg-dark-950 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center gap-2">
+              <span class="h-6 w-6 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 flex items-center justify-center font-bold text-xs">2</span>
+              <h3 class="text-sm font-bold text-white">Step 2: Confirm & Execute Deletion</h3>
+            </div>
+            <p class="text-xs text-slate-400">Verifies the 6-digit code against server memory before deleting.</p>
+
+            <div id="pending-card" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs space-y-1">
+              <div class="font-bold text-amber-400 flex items-center justify-between">
+                <span>ACTIVE CONFIRMATION CODE:</span>
+                <span id="pending-timer" class="font-mono text-xs">5:00</span>
+              </div>
+              <div id="pending-code-display" class="text-2xl font-mono font-bold tracking-widest text-amber-300 py-1">------</div>
+              <div class="text-[11px] text-slate-400 font-mono" id="pending-id-display">ID: ...</div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Pending Request ID</label>
+              <input type="text" id="confirm-pending-id" placeholder="Paste Pending ID" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white">
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">6-Digit Confirmation Code</label>
+              <input type="text" id="confirm-code" maxlength="6" placeholder="e.g. 842194" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-center tracking-widest font-bold text-white">
+            </div>
+
+            <button onclick="confirmDeletionLock()" class="w-full px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition flex items-center justify-center gap-2">
+              <i class="fa-solid fa-trash-can"></i>
+              <span>Confirm Permanent Deletion</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-dark-950 p-4 rounded-xl border border-slate-800">
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Safety Lock Output Log</label>
+          <pre id="safety-output-box" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-300 max-h-48 overflow-y-auto whitespace-pre-wrap">Awaiting safety lock action...</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: SYSTEM & KEEP-ALIVE INFO -->
+    <div id="tab-health" class="tab-pane hidden space-y-6">
+      <div class="bg-dark-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-server text-emerald-400"></i>
+            System & Keep-Alive Diagnostics
+          </h2>
+          <p class="text-xs text-slate-400 mt-1">Real-time status of your server, GitHub environment configuration, and Render 24/7 keep-alive ping loop.</p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div class="bg-dark-950 p-4 rounded-xl border border-slate-800">
+            <div class="text-xs text-slate-400 font-medium">Server Uptime</div>
+            <div id="diag-uptime" class="text-xl font-bold font-mono text-emerald-400 mt-1">0s</div>
+          </div>
+          <div class="bg-dark-950 p-4 rounded-xl border border-slate-800">
+            <div class="text-xs text-slate-400 font-medium">GitHub Token</div>
+            <div id="diag-token" class="text-xl font-bold font-mono text-slate-400 mt-1">Checking...</div>
+          </div>
+          <div class="bg-dark-950 p-4 rounded-xl border border-slate-800">
+            <div class="text-xs text-slate-400 font-medium">GitHub User</div>
+            <div id="diag-user" class="text-xl font-bold font-mono text-slate-400 mt-1">Checking...</div>
+          </div>
+          <div class="bg-dark-950 p-4 rounded-xl border border-slate-800">
+            <div class="text-xs text-slate-400 font-medium">Keep-Alive Ping</div>
+            <div id="diag-keepalive" class="text-xl font-bold font-mono text-emerald-400 mt-1">Active</div>
+          </div>
+        </div>
+
+        <div class="bg-dark-950 p-4 rounded-xl border border-slate-800">
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Raw /health JSON Payload</label>
+          <pre id="raw-health-box" class="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs font-mono text-slate-300 max-h-60 overflow-y-auto whitespace-pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+    GitHub Model Context Protocol (MCP) Server • MIT License • Built with Express & @modelcontextprotocol/sdk
+  </footer>
+
+  <!-- Script Logic -->
+  <script>
+    let currentAgent = 'claude';
+    let currentTool = 'list_repositories';
+    let lockTimerInterval = null;
+
+    // Initialize UI on load
+    window.addEventListener('DOMContentLoaded', () => {
+      const origin = window.location.origin;
+      document.getElementById('server-url-input').value = origin;
+
+      const savedKey = localStorage.getItem('mcp_api_key') || '';
+      document.getElementById('api-key-input').value = savedKey;
+
+      document.getElementById('api-key-input').addEventListener('input', (e) => {
+        localStorage.setItem('mcp_api_key', e.target.value.trim());
+        updateAgentCode();
+      });
+
+      selectAgent('claude');
+      loadToolUI('list_repositories');
+      checkHealth();
+      setInterval(checkHealth, 30000);
+    });
+
+    function getApiKey() {
+      return document.getElementById('api-key-input').value.trim();
+    }
+
+    function togglePasswordVisibility() {
+      const input = document.getElementById('api-key-input');
+      const icon = document.getElementById('toggle-eye-icon');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+      } else {
+        input.type = 'password';
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+      }
+    }
+
+    function copyServerUrl() {
+      const url = document.getElementById('server-url-input').value;
+      navigator.clipboard.writeText(url);
+      alert('Copied Server URL: ' + url);
+    }
+
+    async function checkHealth() {
+      const statusBadge = document.getElementById('status-badge');
+      const statusDot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+
+      try {
+        const start = performance.now();
+        const res = await fetch('/health');
+        const latency = Math.round(performance.now() - start);
+
+        if (!res.ok) throw new Error('Status: ' + res.status);
+        const data = await res.json();
+
+        statusDot.className = 'h-2 w-2 rounded-full bg-emerald-400';
+        statusBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30';
+        statusText.innerText = `Online (${latency}ms)`;
+
+        // Diagnostics Tab
+        document.getElementById('diag-uptime').innerText = `${data.uptimeSeconds}s`;
+        document.getElementById('diag-token').innerText = data.configured?.githubToken ? 'Configured ✅' : 'Missing ❌';
+        document.getElementById('diag-token').className = data.configured?.githubToken ? 'text-xl font-bold font-mono text-emerald-400 mt-1' : 'text-xl font-bold font-mono text-red-400 mt-1';
+        document.getElementById('diag-user').innerText = data.configured?.githubUsername ? 'Configured ✅' : 'Missing ❌';
+        document.getElementById('diag-user').className = data.configured?.githubUsername ? 'text-xl font-bold font-mono text-emerald-400 mt-1' : 'text-xl font-bold font-mono text-red-400 mt-1';
+        document.getElementById('diag-keepalive').innerText = data.configured?.keepAlive ? 'Self-Ping Active ✅' : 'External Ready';
+        document.getElementById('raw-health-box').innerText = JSON.stringify(data, null, 2);
+
+      } catch (err) {
+        statusDot.className = 'h-2 w-2 rounded-full bg-red-400';
+        statusBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/30';
+        statusText.innerText = 'Offline / Error';
+      }
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(el => {
+        el.className = 'tab-btn px-4 py-3 text-xs font-semibold rounded-t-xl border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2';
+      });
+
+      document.getElementById(`tab-${tab}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`tab-btn-${tab}`);
+      activeBtn.className = 'tab-btn px-4 py-3 text-xs font-semibold rounded-t-xl border-b-2 border-emerald-500 text-emerald-400 bg-slate-800/40 flex items-center gap-2';
+    }
+
+    // Agent config templates
+    function selectAgent(agent) {
+      currentAgent = agent;
+      document.querySelectorAll('.agent-select-btn').forEach(btn => {
+        btn.className = 'agent-select-btn p-3 rounded-xl border border-slate-800 bg-dark-950 text-slate-400 text-left font-medium text-xs flex flex-col gap-1';
+      });
+      document.getElementById(`btn-agent-${agent}`).className = 'agent-select-btn p-3 rounded-xl border border-emerald-500 bg-emerald-500/10 text-emerald-400 text-left font-medium text-xs flex flex-col gap-1';
+      updateAgentCode();
+    }
+
+    function updateAgentCode() {
+      const origin = window.location.origin;
+      const apiKey = getApiKey() || 'YOUR_MCP_API_KEY';
+      const codeEl = document.getElementById('agent-config-code');
+      const labelEl = document.getElementById('config-filename-label');
+      const instEl = document.getElementById('agent-instructions');
+
+      if (currentAgent === 'claude') {
+        labelEl.innerText = 'claude_desktop_config.json';
+        codeEl.innerText = JSON.stringify({
+          "mcpServers": {
+            "github-gateway": {
+              "command": "npx",
+              "args": [
+                "-y",
+                "mcp-remote-client",
+                `${origin}/sse?apiKey=${apiKey}`
+              ]
+            }
+          }
+        }, null, 2);
+        instEl.innerHTML = `<strong>File Location:</strong><br>• <strong>Windows:</strong> <code>%APPDATA%\\Claude\\claude_desktop_config.json</code><br>• <strong>macOS:</strong> <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>`;
+      } else if (currentAgent === 'cursor') {
+        labelEl.innerText = '.cursor/mcp.json or Cursor Settings -> Features -> MCP';
+        codeEl.innerText = JSON.stringify({
+          "mcpServers": {
+            "github-gateway": {
+              "url": `${origin}/sse?apiKey=${apiKey}`,
+              "headers": {
+                "Authorization": `Bearer ${apiKey}`
+              }
+            }
+          }
+        }, null, 2);
+        instEl.innerHTML = `<strong>Setup:</strong> In Cursor, open <strong>Settings &gt; Features &gt; MCP</strong>, click <strong>Add New MCP Server</strong>, choose type <strong>SSE</strong>, and enter the URL above.`;
+      } else if (currentAgent === 'antigravity') {
+        labelEl.innerText = 'Antigravity / Windsurf mcp_config.json';
+        codeEl.innerText = JSON.stringify({
+          "mcpServers": {
+            "github": {
+              "serverUrl": `${origin}/sse?apiKey=${apiKey}`
+            }
+          }
+        }, null, 2);
+        instEl.innerHTML = `<strong>Setup:</strong> Add to your Windsurf or Antigravity MCP settings to give the assistant instant GitHub powers.`;
+      } else if (currentAgent === 'curl') {
+        labelEl.innerText = 'Terminal SSE Test';
+        codeEl.innerText = `curl -N "${origin}/sse?apiKey=${apiKey}"`;
+        instEl.innerHTML = `<strong>SSE Test:</strong> Running this in your terminal connects to the stream and outputs the initial session ID event.`;
+      }
+    }
+
+    function copyAgentConfig() {
+      const code = document.getElementById('agent-config-code').innerText;
+      navigator.clipboard.writeText(code);
+      alert('Configuration copied to clipboard!');
+    }
+
+    // Playground tool UI
+    function loadToolUI(toolName) {
+      currentTool = toolName;
+      document.querySelectorAll('.tool-select-btn').forEach(btn => {
+        btn.className = 'tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-800 border border-transparent';
+      });
+      document.getElementById(`tool-btn-${toolName}`).className = 'tool-select-btn w-full text-left px-3 py-2 rounded-lg text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500';
+
+      document.getElementById('current-tool-title').children[0].innerText = toolName;
+      const container = document.getElementById('tool-input-fields');
+      container.innerHTML = '';
+
+      if (toolName === 'list_repositories') {
+        container.innerHTML = `
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Visibility</label>
+              <select id="p-visibility" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+                <option value="all">All</option>
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Results per page</label>
+              <input type="number" id="p-per_page" value="10" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+          </div>
+        `;
+      } else if (toolName === 'get_repository' || toolName === 'list_branches' || toolName === 'list_pull_requests') {
+        container.innerHTML = `
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Repository Name</label>
+            <input type="text" id="p-repo" placeholder="e.g. MCP-SERVER" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+          </div>
+        `;
+      } else if (toolName === 'read_file') {
+        container.innerHTML = `
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Repository Name</label>
+              <input type="text" id="p-repo" placeholder="e.g. MCP-SERVER" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">File Path</label>
+              <input type="text" id="p-path" placeholder="e.g. README.md or package.json" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+          </div>
+        `;
+      } else if (toolName === 'create_or_update_file') {
+        container.innerHTML = `
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Repository Name</label>
+              <input type="text" id="p-repo" placeholder="e.g. MCP-SERVER" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">File Path</label>
+              <input type="text" id="p-path" placeholder="e.g. test.txt" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">Commit Message</label>
+            <input type="text" id="p-message" placeholder="e.g. update file via dashboard" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1">File Content</label>
+            <textarea id="p-content" rows="4" placeholder="Hello from MCP Server Dashboard!" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-white"></textarea>
+          </div>
+        `;
+      }
+    }
+
+    async function runCurrentTool() {
+      const outBox = document.getElementById('tool-output-box');
+      const apiKey = getApiKey();
+      outBox.innerText = 'Executing tool...';
+
+      const params = {};
+      if (document.getElementById('p-repo')) params.repo = document.getElementById('p-repo').value.trim();
+      if (document.getElementById('p-path')) params.path = document.getElementById('p-path').value.trim();
+      if (document.getElementById('p-message')) params.message = document.getElementById('p-message').value.trim();
+      if (document.getElementById('p-content')) params.content = document.getElementById('p-content').value;
+      if (document.getElementById('p-visibility')) params.visibility = document.getElementById('p-visibility').value;
+      if (document.getElementById('p-per_page')) params.per_page = parseInt(document.getElementById('p-per_page').value, 10);
+
+      try {
+        const res = await fetch('/api/test-tool', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'x-mcp-api-key': apiKey
+          },
+          body: JSON.stringify({ tool: currentTool, params })
+        });
+
+        const data = await res.json();
+        outBox.innerText = JSON.stringify(data, null, 2);
+      } catch (err) {
+        outBox.innerText = 'Error: ' + err.message;
+      }
+    }
+
+    // Safety lock actions
+    async function requestDeletionLock() {
+      const out = document.getElementById('safety-output-box');
+      const apiKey = getApiKey();
+      const type = document.getElementById('lock-type').value;
+      const repo = document.getElementById('lock-repo').value.trim();
+      const target = document.getElementById('lock-target').value.trim();
+
+      if (!repo || !target) {
+        alert('Please specify repo and target.');
+        return;
+      }
+
+      out.innerText = 'Requesting deletion lock code...';
+
+      try {
+        const res = await fetch('/api/test-tool', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            tool: 'request_deletion',
+            params: { type, repo, target }
+          })
+        });
+
+        const data = await res.json();
+        out.innerText = JSON.stringify(data, null, 2);
+
+        if (data.content && data.content[0]) {
+          const parsed = JSON.parse(data.content[0].text);
+          if (parsed.status === 'PENDING_CONFIRMATION') {
+            document.getElementById('pending-card').classList.remove('hidden');
+            document.getElementById('pending-code-display').innerText = parsed.confirmationCode;
+            document.getElementById('pending-id-display').innerText = `ID: ${parsed.pendingId}`;
+            document.getElementById('confirm-pending-id').value = parsed.pendingId;
+            document.getElementById('confirm-code').value = parsed.confirmationCode;
+
+            // Start countdown
+            let sec = parsed.expiresInSeconds || 300;
+            clearInterval(lockTimerInterval);
+            lockTimerInterval = setInterval(() => {
+              sec--;
+              if (sec <= 0) {
+                clearInterval(lockTimerInterval);
+                document.getElementById('pending-timer').innerText = 'EXPIRED';
+              } else {
+                const m = Math.floor(sec / 60);
+                const s = sec % 60;
+                document.getElementById('pending-timer').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+              }
+            }, 1000);
+          }
+        }
+      } catch (err) {
+        out.innerText = 'Error: ' + err.message;
+      }
+    }
+
+    async function confirmDeletionLock() {
+      const out = document.getElementById('safety-output-box');
+      const apiKey = getApiKey();
+      const pending_id = document.getElementById('confirm-pending-id').value.trim();
+      const confirmation_code = document.getElementById('confirm-code').value.trim();
+
+      if (!pending_id || !confirmation_code) {
+        alert('Please specify Pending ID and 6-digit confirmation code.');
+        return;
+      }
+
+      if (!confirm('CRITICAL ACTION: Are you 100% sure you want to permanently execute this deletion?')) {
+        return;
+      }
+
+      out.innerText = 'Executing confirmed deletion...';
+
+      try {
+        const res = await fetch('/api/test-tool', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            tool: 'confirm_deletion',
+            params: { pending_id, confirmation_code }
+          })
+        });
+
+        const data = await res.json();
+        out.innerText = JSON.stringify(data, null, 2);
+        document.getElementById('pending-card').classList.add('hidden');
+        clearInterval(lockTimerInterval);
+      } catch (err) {
+        out.innerText = 'Error: ' + err.message;
+      }
+    }
+  </script>
+</body>
+</html>

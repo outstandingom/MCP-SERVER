@@ -1,13 +1,21 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import path from "path";
+import fs from "fs";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { config } from "./config.js";
-import { createGitHubMcpServer } from "./mcp-server.js";
+import { createGitHubMcpServer, executeGitHubTool } from "./mcp-server.js";
 
 const app = express();
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
+
+// Serve static frontend files from /public
+const publicDir = path.resolve(process.cwd(), "public");
+if (fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+}
 
 // Session store for active SSE connections
 interface ActiveSession {
@@ -76,18 +84,49 @@ app.get("/ping", (_req: Request, res: Response) => {
   res.status(200).send("pong");
 });
 
-// Root endpoint with service info
-app.get("/", (_req: Request, res: Response) => {
+// Root endpoint - serves UI Dashboard if requested by browser, or JSON if API client
+app.get("/", (req: Request, res: Response) => {
+  const indexPath = path.join(publicDir, "index.html");
+  if (req.accepts("html") && fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+
   res.status(200).json({
     name: "GitHub Lifetime MCP Gateway",
     version: "1.0.0",
     protocol: "Model Context Protocol (MCP) via SSE",
     endpoints: {
+      dashboard: "/",
       health: "/health",
+      ping: "/ping",
       sse: "/sse",
       messages: "/messages",
+      testTool: "/api/test-tool",
     },
   });
+});
+
+// Explicit dashboard route
+app.get("/dashboard", (_req: Request, res: Response) => {
+  const indexPath = path.join(publicDir, "index.html");
+  if (fs.existsSync(indexPath)) {
+    return res.sendFile(indexPath);
+  }
+  res.redirect("/");
+});
+
+// Test tool API for frontend playground
+app.post("/api/test-tool", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { tool, params } = req.body;
+    if (!tool) {
+      return res.status(400).json({ error: "Missing tool name in request body" });
+    }
+    const result = await executeGitHubTool(tool, params || {});
+    res.status(200).json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || String(err) });
+  }
 });
 
 // SSE endpoint to initiate client connection
