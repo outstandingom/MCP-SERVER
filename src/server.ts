@@ -38,14 +38,18 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
   }
 
   // Strip accidental surrounding quotes from env var (e.g., if set as "value" in Render)
-  const expectedKey = config.MCP_API_KEY.replace(/^["']|["']$/g, "").trim();
+  const expectedKeys = [config.MCP_API_KEY, config.PLAYWRIGHT_MCP_EXTENSION_TOKEN]
+    .map(k => (k || "").replace(/^["']|["']$/g, "").trim())
+    .filter(Boolean);
 
   const authHeader = req.headers.authorization;
   const customHeader = (
     req.headers["x-mcp-api-key"] ||
     req.headers["x-api-key"] ||
     req.headers["mcp-api-key"] ||
-    req.headers["api-key"]
+    req.headers["api-key"] ||
+    req.headers["x-playwright-mcp-extension-token"] ||
+    req.headers["playwright-mcp-extension-token"]
   ) as string | undefined;
 
   const rawQuery = (
@@ -54,6 +58,8 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
     req.query.key ||
     req.query.token ||
     req.query.access_token ||
+    req.query.extensionToken ||
+    req.query.extension_token ||
     req.query.auth
   ) as string | undefined;
 
@@ -78,18 +84,16 @@ function authMiddleware(req: Request, res: Response, next: NextFunction) {
     providedKey = providedKey.replace(/^["']|["']$/g, "").trim();
   }
 
-  if (!providedKey || providedKey !== expectedKey) {
+  if (!providedKey || !expectedKeys.includes(providedKey)) {
     console.warn(
       `[AUTH REJECTED] Path: ${req.path} from IP: ${req.ip}.` +
-      ` Expected length: ${expectedKey.length} (prefix: "${expectedKey.slice(0, 4)}...").` +
+      ` Expected valid key(s): ${expectedKeys.length}.` +
       ` Provided length: ${providedKey ? providedKey.length : 0} (prefix: "${providedKey ? providedKey.slice(0, 4) : 'none'}...").`
     );
     return res.status(401).json({
       error: "Unauthorized",
       message:
-        "Invalid or missing MCP_API_KEY. Provide it via Authorization Bearer token, X-MCP-API-KEY header, or ?apiKey= parameter.",
-      expectedLength: expectedKey.length,
-      expectedPrefix: expectedKey.slice(0, 4) + "...",
+        "Invalid or missing MCP_API_KEY / PLAYWRIGHT_MCP_EXTENSION_TOKEN. Provide it via Authorization Bearer token, X-MCP-API-KEY header, or ?apiKey= parameter.",
       providedLength: providedKey ? providedKey.length : 0,
     });
   }

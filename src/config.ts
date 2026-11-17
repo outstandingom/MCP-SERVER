@@ -7,6 +7,7 @@ export interface AppConfig {
   GITHUB_TOKEN: string;
   GITHUB_USERNAME: string;
   MCP_API_KEY: string;
+  PLAYWRIGHT_MCP_EXTENSION_TOKEN: string;
   BASE_URL: string;
   KEEP_ALIVE_URL: string;
   KEEP_ALIVE_INTERVAL_MINUTES: number;
@@ -15,7 +16,8 @@ export interface AppConfig {
 export function loadConfig(): AppConfig {
   const GITHUB_TOKEN = process.env.GITHUB_TOKEN?.trim() || "";
   const GITHUB_USERNAME = process.env.GITHUB_USERNAME?.trim() || "";
-  const MCP_API_KEY = process.env.MCP_API_KEY?.trim() || "";
+  const PLAYWRIGHT_MCP_EXTENSION_TOKEN = process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN?.trim() || "";
+  const MCP_API_KEY = process.env.MCP_API_KEY?.trim() || PLAYWRIGHT_MCP_EXTENSION_TOKEN;
   const PORT = parseInt(process.env.PORT || "3000", 10);
   const BASE_URL = process.env.BASE_URL?.trim() || `http://localhost:${PORT}`;
   const KEEP_ALIVE_URL =
@@ -48,6 +50,7 @@ export function loadConfig(): AppConfig {
     GITHUB_TOKEN,
     GITHUB_USERNAME,
     MCP_API_KEY,
+    PLAYWRIGHT_MCP_EXTENSION_TOKEN,
     BASE_URL,
     KEEP_ALIVE_URL,
     KEEP_ALIVE_INTERVAL_MINUTES,
